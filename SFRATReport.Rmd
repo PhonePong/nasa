@@ -1,0 +1,246 @@
+---
+title: "Software Failure and Reliability Assessment Tool: Report"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+library(shiny)
+library(DT)
+library(knitr)
+library(gdata)
+library(ggplot2)
+library(rootSolve)
+library(readxl)
+```
+
+```{r, echo=FALSE}
+source('~/Downloads/srt-3.core-master/utility/data/Data_Tools.R')
+
+#Input excel file with a single sheet for now
+d <- read_excel("~/Downloads/srt-3.core-master/model_testing/model_data.xlsx")
+cnames <- colnames(d) # Read column names in the input excel file
+
+#Data conversion depending on the type of the input data
+if("FN" %in% cnames && "IF" %in% cnames && "FT" %in% cnames){
+  	FT <- d$FT
+  	IF <- d$IF
+  	FN <- d$FN
+}else if("FN" %in% cnames && "IF" %in% cnames){
+  	FT <- IF_to_FT(d$IF)
+  	IF <- d$IF
+  	FN <- d$FN
+}else if("FN" %in% cnames && "FT" %in% cnames){
+  	IF <- FT_to_IF(d$FT)
+  	FT <- d$FT
+  	FN <- d$FN
+}else if("T" %in% cnames && "FC" %in% cnames && "CFC" %in% cnames){
+  FT <- FC_to_FT(d$FC)
+  IF <- FT_to_IF(FT)
+  FN <- d$T
+}else if("T" %in% cnames && "FC" %in% cnames){
+  CFC <- FC_to_CFC(d$FC)
+  FT <- FC_to_FT(d$FC)
+  IF <- FT_to_IF(FT)
+  FN <- d$T
+}else if("T" %in% cnames && "CFC" %in% cnames){
+  FC <- CFC_to_FC(d$CFC)
+  FT <- FC_to_FT(d$FC)
+  IF <- FT_to_IF(FT)
+  FN <- d$T
+}else{
+  print("Upload your input data/file formatted according to the SFRAT guidelines")
+}
+#FT
+#IF
+#FN
+#FC
+#CFC
+```
+
+# Tab 1: Select, Apply, and Analyze Data
+Sample of the uploaded input data is shown below: 
+```{r, echo=FALSE}
+kable(d[1:10,], caption="First ten points of the input data")
+```
+
+## Cumulative failures
+```{r, echo=FALSE}
+plot(FT,FN,type="s", xlab="Cumulative test time",ylab="Cumulative number of failures",main = "Cumuative Failures vs. cumulative test time")
+```
+
+## Times between failures
+```{r, echo=FALSE}
+plot(FT,IF,type="s", xlab="Cumulative test time",ylab="Times between successive failures",main = "Interfailure times vs. cumulative test time")
+```
+
+## Failure intensity
+```{r, echo=FALSE}
+plot(FT,1/IF,type="s", xlab="Cumulative test time",ylab="Number of failures per unit time",main = "Empirical failure intensity vs. cumulative test time")
+```
+
+## Laplace Trend Test
+```{r, echo=FALSE}
+laplace_trend_test <- function(inter_failure)
+{
+  n <- length(inter_failure)
+  failure_time <- IF_to_FT(inter_failure)   
+  laplace_trend <- c()
+  laplace_trend[1] <- 0
+  for(i in 2:n)
+  {
+    sumint <- 0
+    for(j in 1:(i-1))
+    {
+      sumint <- sumint + failure_time[j]  
+    }
+    laplace_trend[i] <-(((1/(i-1))*sumint) -(failure_time[i]/2))/(failure_time[i]*(1/(12*(i-1))^(0.5)))
+  }
+  trend_data <- data.frame(c(1:length(laplace_trend)),laplace_trend)
+  names(trend_data) <- c("Index","Laplace_factor")
+  return(trend_data)
+}
+plot(laplace_trend_test(IF),type="s",xlab="Failure number", ylab="Laplace test statistic",main="Laplace trend test")
+
+#This code will enable display of siginificant lines
+localTrendPlot <- ggplot()
+localTrendPlot <- localTrendPlot + xlab("Failure Number")+ylab("Laplace Test Statistic")
+localTrendPlot <- localTrendPlot+ggtitle("Laplace trend test of")
+localTrendPlot <- localTrendPlot + geom_hline(yintercept = qnorm(0.1), color="red", alpha=0.8)
+localTrendPlot <- localTrendPlot + geom_hline(aes(yintercept=c(qnorm(0.1),qnorm(0.05),qnorm(0.01),qnorm(0.001),qnorm(0.0000001),qnorm(0.0000000001))),linetype="dotted",color='black',alpha=0.8)
+```
+
+##Running arithmetic average
+```{r,echo=FALSE}
+running_average_test <- function(inter_failure)
+{
+  n <- length(inter_failure)
+  runningAverage <- c()
+  for(i in 1:n)
+  {
+    sum1 <-0
+    for(j in 1:i)
+    {
+      sum1 <- sum1 + inter_failure[j]
+    }
+    runningAverage[i] <- (1/i)*sum1;
+  }
+  runningAverage <- data.frame(c(1:length(runningAverage)),runningAverage)
+  names(runningAverage) <- c("Index","Running_Average")
+  return(runningAverage)
+}
+plot(running_average_test(IF),type="s",xlab="Failure number", ylab="Running average of interfailure times",main="Running arithmetic average test")
+```
+
+#Tab2: Set Up and Apply Models
+```{r, echo=FALSE}
+source('~/Downloads/srt-3.core-master/models/DSS/DSS_BM_FT.R')
+source('~/Downloads/srt-3.core-master/models/GO/GO_BM_FT.R')
+source('~/Downloads/srt-3.core-master/models/JM/JM_BM.R')
+source('~/Downloads/srt-3.core-master/models/GM/GM_BM.R')
+source('~/Downloads/srt-3.core-master/models/Wei/Wei_NM_FT.R')
+```
+
+## Cumulative failures - JM, GM, GO, DSS, and Weibull
+```{r, echo=FALSE}
+#change line 115 if Wei_NM_FT.R to names(params) <- c("Wei_aMLE","Wei_bMLE","Wei_cMLE")
+
+#names(hxy) <- c("DSS","GO","JM","GM","Wei")
+  #   hxy <- c(1:5)
+  #   if(!is.na(DSS_BM_MLE(FT))){hxy[1] <- DSS_MVF(DSS_BM_MLE(FT),d)[,2]}else{hxy[1]<-0}
+  #   if(!is.na(GO_BM_MLE(FT))){hxy[2]<-GO_MVF(GO_BM_MLE(FT),d)[,1]}else{hxy[2]<-0}
+  #   if(!is.na(JM_BM_MLE(IF))){hxy[3]<-JM_MVF(JM_BM_MLE(IF),d)[,1]}else{hxy[3]<-0}
+  #   if(!is.na(GM_BM_MLE(IF))){hxy[4]<-GM_MVF(GM_BM_MLE(IF),d)[,2]}else{hxy[4]<-0}
+  #   if(!is.na(Wei_NM_MLE(FT))){hxy[5]<-Wei_MVF(Wei_NM_MLE(FT),d)[,2]}else{hxy[5]<-0}
+  # hxy
+
+#Exclude models with non-convergence and make the below code reactive.
+hxy <- data.frame(DSS_MVF(DSS_BM_MLE(FT),d)[,2],GO_MVF(GO_BM_MLE(FT),d)[,1],JM_MVF(JM_BM_MLE(IF),d)[,1],GM_MVF(GM_BM_MLE(IF),d)[,2],Wei_MVF(Wei_NM_MLE(FT),d)[,2])
+ntrees <- length(hxy)
+plot(FT, FN, type="n", xlab="Cumulative test time",
+  	ylab="Cumulative failures" ) 
+colors <- rainbow(ntrees) 
+linetype <- c("p","l","o","b","c","s","S","h")  
+lines(FT, FN, type="s") 
+for (i in 1:ntrees) { 
+  lines(FT, hxy[,i], type="l", col=colors[i]) 
+} 
+title("Cumualtive failures vs. cumualtive test time")
+legend("topright", legend=c("DSS","GO","JM","GM","Wei"), 1:ntrees+1, cex=0.8, col=colors)#legend text and lines should match
+```
+
+## Times between failures or MTTF
+```{r,echo=FALSE}
+hxy <- data.frame(DSS_MTTF(DSS_BM_MLE(FT),d)[,2],GO_MTTF(GO_BM_MLE(FT),d)[,2],JM_MTTF(JM_BM_MLE(IF),d)[,2],GM_MTTF(GM_BM_MLE(IF),d)[,2],Wei_MTTF(Wei_NM_MLE(FT),d)[,2])
+ntrees <- length(hxy)
+plot(FT, IF, type="n", xlab="Cumulative test time",
+  	ylab="Times between failures" ) 
+colors <- rainbow(ntrees) 
+linetype <- c("p","l","o","b","c","s","S","h")  
+lines(FT, IF, type="s") 
+for (i in 1:ntrees) { 
+  lines(FT, hxy[,i], type="l", col=colors[i]) 
+} 
+title("Times between failures vs. cumualtive test time")
+legend("topright", legend=c("DSS","GO","JM","GM","Wei"), 1:ntrees+1, cex=0.8, col=colors)#legend text and lines should match
+```
+
+## Failure intensity
+```{r,echo=FALSE}
+hxy <- data.frame(DSS_FI(DSS_BM_MLE(FT),d)[,2],GO_FI(GO_BM_MLE(FT),d)[,2],JM_FI(JM_BM_MLE(IF),d)[,2],GM_FI(GM_BM_MLE(IF),d)[,2],Wei_FI(Wei_NM_MLE(FT),d)[,2])
+ntrees <- length(hxy)
+plot(FT, IF, type="n", xlab="Cumulative test time",
+  	ylab="Failure intensity" ) 
+colors <- rainbow(ntrees) 
+linetype <- c("p","l","o","b","c","s","S","h")  
+lines(FT, IF, type="s") 
+for (i in 1:ntrees) { 
+  lines(FT, hxy[,i], type="l", col=colors[i]) 
+} 
+title("Failure intensity vs. cumualtive test time")
+legend("topright", legend=c("DSS","GO","JM","GM","Wei"), 1:ntrees+1, cex=0.8, col=colors)#legend text and lines should match
+```
+
+##Reliability Growth
+```{r,echo=FALSE}
+#DSS_R_growth(DSS_BM_MLE(FT),d,600)[,2]#600 is the delta value - mission time - should make it reactive
+hxy <- data.frame(DSS_R_growth(DSS_BM_MLE(FT),d,600)[,2],GO_R_growth(GO_BM_MLE(FT),d,600)[,2],JM_R_growth(JM_BM_MLE(FT),d,600)[,2],GM_R_growth(GM_BM_MLE(FT),d,600)[,2],Wei_R_growth(Wei_NM_MLE(FT),d,600)[,2])
+ntrees <- length(hxy)
+plot(FT, seq(from=0, to=1, by=1/(length(FT)-1)), type="n",xlab="Cumulative test time",
+  	ylab="Reliability growth" ) #Remove this line
+colors <- rainbow(ntrees) 
+linetype <- c("p","l","o","b","c","s","S","h")  
+lines(FT, IF, type="s") 
+for (i in 1:ntrees) { 
+  lines(FT, hxy[,i], type="l", col=colors[i]) 
+} 
+title("Reliability growth vs. cumualtive test time")
+legend("topright", legend=c("DSS","GO","JM","GM","Wei"), 1:ntrees+1, cex=0.8, col=colors)#legend text and lines should match
+```
+
+#Tab3: Query Model Results
+```{r,echo=FALSE}
+source('~/Downloads/srt-3.core-master/utility/prediction/Detailed_prediction.R')
+predTable <- matrix(NA, nrow = 5, ncol = 3)
+rownames(predTable) <- c("DSS","GO","JM","GM","Wei")
+colnames(predTable) <- c("Time to achieve specified reliability","Expected number of failures","Expected time to N failure")
+predTable[,1] <- c(get_reliability_t("DSS",DSS_BM_MLE(FT),0.9,600,last(FT),1),get_reliability_t("GO",GO_BM_MLE(FT),0.9,600,last(FT),1),get_reliability_t("JM",JM_BM_MLE(IF),0.9,600,last(IF),1),get_reliability_t("GM",GM_BM_MLE(IF),0.9,600,last(IF),1),get_reliability_t("Wei",Wei_NM_MLE(FT),0.9,600,last(FT),1))
+predTable[,2] <- c(get_prediction_k("DSS",DSS_BM_MLE(FT),10,last(FT),length(FT)),get_prediction_k("GO",GO_BM_MLE(FT),10,last(FT),length(FT)),get_prediction_k("JM",JM_BM_MLE(IF),10,last(FT),length(FT)),get_prediction_k("GM",GM_BM_MLE(IF),10,last(FT),length(FT)),get_prediction_k("Wei",Wei_NM_MLE(FT),10,last(FT),length(FT)))
+predTable[,3] <- c(get_prediction_t("DSS",DSS_BM_MLE(FT),1,last(FT),length(FT)),get_prediction_t("GO",GO_BM_MLE(FT),1,last(FT),length(FT)),get_prediction_t("JM",JM_BM_MLE(IF),1,last(FT),length(FT)),get_prediction_t("GM",GM_BM_MLE(IF),1,last(FT),length(FT)),get_prediction_t("Wei",Wei_NM_MLE(FT),1,last(FT),length(FT)))#The table can only handle a single value
+kable(predTable)
+```
+
+#Tab4: Evaluate Models
+```{r,echo=FALSE}
+source('~/Downloads/srt-3.core-master/utility/metrics/GOF.R')
+GOFTable <- matrix(NA, nrow = 5, ncol = 2)
+rownames(GOFTable) <- c("DSS","GO","JM","GM","Wei")
+colnames(GOFTable) <- c("AIC","PSSE")
+GOFTable[,1] <- c(aic(2,DSS_lnL(FT,DSS_BM_MLE(FT))),aic(2,GO_lnL(FT,GO_BM_MLE(FT))),aic(2,JM_lnL(IF,JM_BM_MLE(IF))),aic(2,GM_lnL(IF,GM_BM_MLE(IF))),aic(3,Wei_lnL(FT,Wei_NM_MLE(FT))))
+GOFTable[,2] <- c(psse("DSS",d,DSS_BM_MLE(FT),0.9),psse("GO",d,GO_BM_MLE(FT),0.9),psse("JM",d,JM_BM_MLE(IF),0.9),psse("GM",d,GM_BM_MLE(IF),0.9),psse("Wei",d,Wei_NM_MLE(FT),0.9))#Need to verify these numbers
+kable(GOFTable)
+```
+
