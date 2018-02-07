@@ -18,10 +18,10 @@ library(readxl)
 ```
 
 ```{r, echo=FALSE}
-source('~/Downloads/srt-3.core-master/utility/data/Data_Tools.R')
+source('~/Fall 2017/Fiondella Research/NASA/srt-3.core-master/utility/data/Data_Tools.R')
 
 #Input excel file with a single sheet for now
-d <- read_excel("~/Downloads/srt-3.core-master/model_testing/model_data.xlsx")
+d <- read_excel("~/Fall 2017/Fiondella Research/NASA/srt-3.core-master/model_testing/model_data.xlsx")
 cnames <- colnames(d) # Read column names in the input excel file
 
 #Data conversion depending on the type of the input data
@@ -103,14 +103,35 @@ laplace_trend_test <- function(inter_failure)
   names(trend_data) <- c("Index","Laplace_factor")
   return(trend_data)
 }
-plot(laplace_trend_test(IF),type="s",xlab="Failure number", ylab="Laplace test statistic",main="Laplace trend test")
+# plot(laplace_trend_test(IF),type="s",xlab="Failure number", ylab="Laplace test statistic",main="Laplace trend test")
+LTT <- laplace_trend_test(IF)
 
-#This code will enable display of siginificant lines
-localTrendPlot <- ggplot()
-localTrendPlot <- localTrendPlot + xlab("Failure Number")+ylab("Laplace Test Statistic")
-localTrendPlot <- localTrendPlot+ggtitle("Laplace trend test of")
-localTrendPlot <- localTrendPlot + geom_hline(yintercept = qnorm(0.1), color="red", alpha=0.8)
-localTrendPlot <- localTrendPlot + geom_hline(aes(yintercept=c(qnorm(0.1),qnorm(0.05),qnorm(0.01),qnorm(0.001),qnorm(0.0000001),qnorm(0.0000000001))),linetype="dotted",color='black',alpha=0.8)
+# Two Tailed test
+Confidence.lvl <- .95 # <-- this would come from user
+Significance <- 1 - Confidence.lvl
+Z.value.1 <- qnorm(Significance / 2)
+Z.value.2 <- -1 * Z.value.1
+
+#This code will enable display of significance lines
+localTrendPlot <- ggplot(data = LTT, aes(Index, Laplace_factor))+ 
+  geom_line() +
+  theme_classic()+
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))+
+  xlab("Failure Number")+
+  scale_x_continuous(breaks = round(seq(0 , max(LTT$Index), by = 20), 1))+
+  ylab("Laplace Test Statistic")+
+  ggtitle("Laplace Trend Test")+ 
+  labs(subtitle = bquote("Confidence =" ~.(Confidence.lvl)),
+       caption = bquote(paste("Z(",alpha,"/2) = ± ")~.(Z.value.2)))+
+  geom_hline(yintercept = 0, color="black", linetype = "dotdash")+
+  geom_hline(yintercept = Z.value.1, color="red", alpha=0.8)+
+  geom_hline(yintercept = Z.value.2, color="red", alpha=0.8)
+
+# Conflict with main aes()
+# localTrendPlot <- localTrendPlot + geom_hline(aes(yintercept=c(qnorm(0.1),qnorm(0.05),qnorm(0.01),qnorm(0.001),qnorm(0.0000001),qnorm(0.0000000001))),linetype="dotted",color='black',alpha=0.8)
+
+localTrendPlot
 ```
 
 ##Running arithmetic average
@@ -137,11 +158,11 @@ plot(running_average_test(IF),type="s",xlab="Failure number", ylab="Running aver
 
 #Tab2: Set Up and Apply Models
 ```{r, echo=FALSE}
-source('~/Downloads/srt-3.core-master/models/DSS/DSS_BM_FT.R')
-source('~/Downloads/srt-3.core-master/models/GO/GO_BM_FT.R')
-source('~/Downloads/srt-3.core-master/models/JM/JM_BM.R')
-source('~/Downloads/srt-3.core-master/models/GM/GM_BM.R')
-source('~/Downloads/srt-3.core-master/models/Wei/Wei_NM_FT.R')
+source('~/Fall 2017/Fiondella Research/NASA/srt-3.core-master/models/DSS/DSS_BM_FT.R')
+source('~/Fall 2017/Fiondella Research/NASA/srt-3.core-master/models/GO/GO_BM_FT.R')
+source('~/Fall 2017/Fiondella Research/NASA/srt-3.core-master/models/JM/JM_BM.R')
+source('~/Fall 2017/Fiondella Research/NASA/srt-3.core-master/models/GM/GM_BM.R')
+source('~/Fall 2017/Fiondella Research/NASA/srt-3.core-master/models/Wei/Wei_NM_FT.R')
 ```
 
 ## Cumulative failures - JM, GM, GO, DSS, and Weibull
@@ -223,7 +244,7 @@ legend("topright", legend=c("DSS","GO","JM","GM","Wei"), 1:ntrees+1, cex=0.8, co
 
 #Tab3: Query Model Results
 ```{r,echo=FALSE}
-source('~/Downloads/srt-3.core-master/utility/prediction/Detailed_prediction.R')
+source('~/Fall 2017/Fiondella Research/NASA/srt-3.core-master/utility/prediction/Detailed_prediction.R')
 predTable <- matrix(NA, nrow = 5, ncol = 3)
 rownames(predTable) <- c("DSS","GO","JM","GM","Wei")
 colnames(predTable) <- c("Time to achieve specified reliability","Expected number of failures","Expected time to N failure")
@@ -235,7 +256,7 @@ kable(predTable)
 
 #Tab4: Evaluate Models
 ```{r,echo=FALSE}
-source('~/Downloads/srt-3.core-master/utility/metrics/GOF.R')
+source('~/Fall 2017/Fiondella Research/NASA/srt-3.core-master/utility/metrics/GOF.R')
 GOFTable <- matrix(NA, nrow = 5, ncol = 2)
 rownames(GOFTable) <- c("DSS","GO","JM","GM","Wei")
 colnames(GOFTable) <- c("AIC","PSSE")
